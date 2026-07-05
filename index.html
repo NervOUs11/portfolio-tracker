@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock Transaction Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📈 Stock Transaction Tracker</h1>
+  </header>
+
+  <div id="fileBadge">Loaded: <b id="fileName"></b> · <span id="txCount"></span> transactions
+    <button onclick="refreshPrices()">↻ Refresh prices</button>
+    <button onclick="resetApp()">Load another file</button>
+    <div id="priceStatus" style="margin-top:6px;font-size:12px"></div>
+  </div>
+
+  <div id="dropzone">
+    <div class="big">Drop your CSV here or click to browse</div>
+    <div class="hint">Expected columns: date, ticker, action (Buy/Sell/Split), price, shares, fee, cost, note<br>
+    Thai month names (มกราคม–ธันวาคม) and extra summary columns are handled automatically.</div>
+    <input type="file" id="fileInput" accept=".csv,text/csv">
+  </div>
+
+  <div id="results">
+    <!-- Summary cards: visible on every tab -->
+    <div class="cards" id="cards"></div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="tab-activity">Activity</button>
+      <button class="tab-btn" data-tab="tab-holdings">Holdings</button>
+      <button class="tab-btn" data-tab="tab-performance">Performance</button>
+    </div>
+
+    <!-- Tab 1: monthly investment + transactions -->
+    <div id="tab-activity" class="tab-page active">
+      <section>
+        <div class="panel">
+          <h2>Investment activity (buys, USD)</h2>
+          <div id="heatmap"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Transactions</h2>
+        <div class="panel">
+          <div class="filters">
+            <select id="filterTicker"><option value="">All tickers</option></select>
+            <select id="filterAction"><option value="">All actions</option></select>
+            <input id="filterText" type="text" placeholder="Search notes, tickers…">
+          </div>
+          <div class="table-wrap" style="max-height:480px;overflow-y:auto">
+            <table id="txTable">
+              <thead><tr>
+                <th class="left" data-k="date">Date</th>
+                <th class="left" data-k="ticker">Ticker</th>
+                <th class="left" data-k="action">Action</th>
+                <th data-k="price">Price</th>
+                <th data-k="shares">Shares</th>
+                <th data-k="amount">Amount</th>
+                <th data-k="fee">Fee</th>
+                <th data-k="cost">Cost (USD)</th>
+                <th class="left" data-k="note">Note</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab 2: holdings + allocation pies -->
+    <div id="tab-holdings" class="tab-page">
+      <section>
+        <h2>Holdings</h2>
+        <div class="panel table-wrap">
+          <table id="holdingsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+          <div class="hint" style="color:var(--muted);font-size:11px;margin-top:8px">
+            * Current value / P&amp;L use live Yahoo Finance prices when available; otherwise snapshot values from the CSV.
+            Drag column headers to reorder — your layout is remembered.
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="pie-filter" id="pieTickers"></div>
+        <div class="grid-2">
+          <div class="panel">
+            <h2>Allocation by cost</h2>
+            <div class="donut-wrap">
+              <svg id="donutCost" width="170" height="170" viewBox="0 0 42 42"></svg>
+              <div class="legend" id="donutCostLegend"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Allocation by current price</h2>
+            <div class="donut-wrap">
+              <svg id="donutCur" width="170" height="170" viewBox="0 0 42 42"></svg>
+              <div class="legend" id="donutCurLegend"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab 3: portfolio performance -->
+    <div id="tab-performance" class="tab-page">
+      <div id="perfContent"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Saved portfolio data (personal financial data — keep out of git)
+data/
+
+# Personal trade exports
+csv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Local tooling
+.claude/
