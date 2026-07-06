@@ -150,8 +150,21 @@ const fmtSh  = n => n == null ? "–" : n.toLocaleString("en-US", { maximumFract
 const fmtPct = n => n == null ? "–" : (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
 const fmtDate = d => d.toISOString().slice(0, 10);
 const plClass = n => n == null ? "" : n >= 0 ? "pos" : "neg";
-// Pixel-game palette + derived shades (enough distinct slices for larger portfolios)
-const COLORS = ["#E4572E","#8FB89F","#7A4A2F","#E11D24","#F7F7F5","#2E4A3B","#C97B4A","#E8E2D6","#4F7A5C","#A33B20","#55442E","#22382D"];
+// Theme palettes + derived shades (enough distinct pie slices for larger portfolios)
+const PIE_COLORS = {
+  a: ["#E4572E","#8FB89F","#7A4A2F","#E11D24","#F7F7F5","#2E4A3B","#C97B4A","#E8E2D6","#4F7A5C","#A33B20","#55442E","#22382D"],
+  b: ["#9B72FF","#32C3BA","#FF5755","#8BDBD4","#FF9F8E","#CBACFF","#FFCBC5","#E4D1FF","#6B48C8","#1F8078","#C43F3D","#16525A"],
+};
+const CHART_COLORS = {
+  a: { v: "#F7F7F5", inv: "#7A4A2F", qqq: "#E4572E", voo: "#8FB89F",
+       grid: "rgba(122,74,47,.45)", axis: "rgba(232,226,214,.55)",
+       cursor: "rgba(232,226,214,.35)", dotStroke: "#0D0D0D" },
+  b: { v: "#E4D1FF", inv: "#9B72FF", qqq: "#FF9F8E", voo: "#32C3BA",
+       grid: "rgba(155,114,255,.45)", axis: "rgba(203,172,255,.6)",
+       cursor: "rgba(228,209,255,.4)", dotStroke: "#2A0030" },
+};
+let THEME = localStorage.getItem("theme") === "b" ? "b" : "a";
+let COLORS = PIE_COLORS[THEME];
 
 // ---------- Live prices (Yahoo Finance via local server) ----------
 let QUOTES = {}, QUOTES_AT = null;
@@ -222,19 +235,18 @@ async function loadSavedTransactions() {
 }
 
 async function refreshPrices() {
-  if (ALL_TXS.length) await render(ALL_TXS, document.getElementById("fileName").textContent);
+  if (ALL_TXS.length) await render(ALL_TXS, CURRENT_FILE);
 }
 
 // ---------- Rendering ----------
-let ALL_TXS = [], SORT = { k: "date", dir: -1 };
+let ALL_TXS = [], SORT = { k: "date", dir: -1 }, CURRENT_FILE = "";
 
 async function render(txs, fname) {
   ALL_TXS = txs;
+  CURRENT_FILE = fname;
   document.getElementById("dropzone").style.display = "none";
   document.getElementById("results").style.display = "block";
   document.getElementById("fileBadge").style.display = "block";
-  document.getElementById("fileName").textContent = fname;
-  document.getElementById("txCount").textContent = txs.length;
 
   const holdings = computeHoldings(txs);
   const live = await fetchQuotes(holdings.map(p => p.ticker));
@@ -251,7 +263,10 @@ async function render(txs, fname) {
 }
 
 function renderCards(txs, holdings) {
-  const costNow = holdings.reduce((s, p) => s + p.cost, 0);
+  // Net invested = actual cash deployed: buy amounts (fees included) − sell proceeds
+  const netInvested = txs.reduce((s, t) => t.action === "Sell"
+    ? s - ((t.price != null && t.shares != null) ? t.price * t.shares : (t.cost || 0))
+    : s + (t.amount ?? t.cost ?? 0), 0);
   const curKnown = holdings.filter(p => p.hasCur);
   const curValue = curKnown.reduce((s, p) => s + p.curValue, 0);
   const curCost = curKnown.reduce((s, p) => s + p.cost, 0);
@@ -260,7 +275,7 @@ function renderCards(txs, holdings) {
   const anyLive = holdings.some(p => p.live);
   const cards = [
     { label: anyLive ? "Current value (live)" : "Current value (from CSV)", value: "$" + fmtUSD(curValue) },
-    { label: "Total cost", value: "$" + fmtUSD(costNow) },
+    { label: "Net invested (buy cost + fees − sells)", value: "$" + fmtUSD(netInvested) },
     { label: "Unrealized P/L", value: (unreal >= 0 ? "+$" : "-$") + fmtUSD(Math.abs(unreal)),
       delta: fmtPct(curCost ? unreal / curCost * 100 : null), cls: plClass(unreal) },
   ];
@@ -446,13 +461,27 @@ function renderHeatmap(txs) {
   attachHeatmapTooltip(container);
 }
 
-function attachHeatmapTooltip(container) {
+function getTip() {
   let tip = document.getElementById("hmTip");
   if (!tip) {
     tip = document.createElement("div");
     tip.id = "hmTip";
     document.body.appendChild(tip);
   }
+  return tip;
+}
+
+// Place the tip beside the cursor; flip to the left when close to the right window edge
+function positionTip(tip, e) {
+  tip.style.display = "block";
+  const w = tip.offsetWidth;
+  const flip = e.clientX + 14 + w > window.innerWidth - 8;
+  tip.style.left = (flip ? e.clientX - 14 - w : e.clientX + 14) + "px";
+  tip.style.top = (e.clientY + 14) + "px";
+}
+
+function attachHeatmapTooltip(container) {
+  const tip = getTip();
   const grid = container.querySelector(".hm-grid");
   grid.addEventListener("mouseover", e => {
     const c = e.target.closest(".hm-cell");
@@ -461,10 +490,7 @@ function attachHeatmapTooltip(container) {
     tip.textContent = (v ? "$" + fmtUSD(v) + " invested" : "No purchases") + " · " + c.dataset.date;
     tip.style.display = "block";
   });
-  grid.addEventListener("mousemove", e => {
-    tip.style.left = (e.clientX + 12) + "px";
-    tip.style.top = (e.clientY + 14) + "px";
-  });
+  grid.addEventListener("mousemove", e => positionTip(tip, e));
   grid.addEventListener("mouseleave", () => { tip.style.display = "none"; });
 }
 
@@ -552,11 +578,12 @@ dz.addEventListener("drop", e => {
 // ---------- Performance (yearly TWR, MWR/XIRR, benchmark what-if) ----------
 const BENCHMARKS = ["QQQ", "VOO"];
 let PERF_CACHE = null; // html; invalidated whenever transactions re-render
+let PERF_DATA = null;  // computed metrics (kept for chart hover)
 
 async function fetchHistory(symbol, fromISO) {
   const res = await fetch(`/api/history?symbol=${encodeURIComponent(symbol)}&from=${fromISO}`);
   if (!res.ok) throw new Error(symbol);
-  return (await res.json()).series;
+  return await res.json(); // { series: [{date, close}], dividends: [{date, amount}] }
 }
 
 // XIRR: internal rate of return for dated cash flows (negative = money in), via bisection
@@ -584,8 +611,11 @@ async function computePerformance(txs) {
   const results = await Promise.allSettled(symbols.map(s => fetchHistory(s, fromISO)));
   const failed = symbols.filter((s, i) => results[i].status === "rejected");
   if (failed.length) throw new Error("no price history for: " + failed.join(", "));
-  const priceMap = {};
-  symbols.forEach((s, i) => { priceMap[s] = new Map(results[i].value.map(x => [x.date, x.close])); });
+  const priceMap = {}, divMap = {};
+  symbols.forEach((s, i) => {
+    priceMap[s] = new Map(results[i].value.series.map(x => [x.date, x.close]));
+    divMap[s] = results[i].value.dividends || [];
+  });
 
   // Live quotes for today's values (fall back to last close)
   let quotes = {};
@@ -624,12 +654,21 @@ async function computePerformance(txs) {
   }
   const firstFlowIdx = Math.min(...flowByIdx.keys());
 
-  // Walk the timeline: daily-linked TWR (per year + overall), benchmark mirroring, XIRR flows
+  // Dividend events per trading day (portfolio tickers only)
+  const divByIdx = new Map();
+  for (const s of tickers) for (const d of divMap[s]) {
+    const idx = rollIdx(d.date);
+    if (!divByIdx.has(idx)) divByIdx.set(idx, []);
+    divByIdx.get(idx).push({ sym: s, amount: d.amount });
+  }
+
+  // Walk the timeline: daily-linked TWR (per year + overall), benchmark mirroring,
+  // XIRR flows, daily value series for the chart, risk stats, dividend accrual
   const sharesNow = new Map();
   const benchShares = Object.fromEntries(BENCHMARKS.map(b => [b, 0]));
   const yearTWR = {}, etfYearTWR = Object.fromEntries(BENCHMARKS.map(b => [b, {}]));
-  const xirrFlows = [];
-  let twr = 1, prevV = 0;
+  const xirrFlows = [], chart = [], dailyR = [], divBySym = {}, divByYear = {};
+  let twr = 1, prevV = 0, cumFlow = 0, ddIndex = 1, ddPeak = 1, maxDD = 0;
 
   for (let i = 0; i < days.length; i++) {
     const year = days[i].slice(0, 4);
@@ -637,8 +676,19 @@ async function computePerformance(txs) {
     const dm = deltaByIdx.get(i);
     if (dm) for (const [sym, ds] of dm) sharesNow.set(sym, (sharesNow.get(sym) || 0) + ds);
     if (F) {
+      cumFlow += F;
       for (const b of BENCHMARKS) { const p = aligned[b][i]; if (p) benchShares[b] += F / p; }
       xirrFlows.push({ date: new Date(days[i]), amount: -F });
+    }
+    const divs = divByIdx.get(i);
+    if (divs) for (const dv of divs) {
+      const sh = sharesNow.get(dv.sym) || 0;
+      if (sh > 1e-9) {
+        const amt = sh * dv.amount;
+        divBySym[dv.sym] = (divBySym[dv.sym] || 0) + amt;
+        divByYear[year] = divByYear[year] || {};
+        divByYear[year][dv.sym] = (divByYear[year][dv.sym] || 0) + amt;
+      }
     }
     let V = 0;
     for (const [sym, sh] of sharesNow) {
@@ -647,7 +697,12 @@ async function computePerformance(txs) {
     const base = prevV + F;
     if (base > 1e-9 && (prevV > 1e-9 || F > 0)) {
       const f = V / base;
-      if (isFinite(f) && f > 0) { twr *= f; yearTWR[year] = (yearTWR[year] || 1) * f; }
+      if (isFinite(f) && f > 0) {
+        twr *= f; yearTWR[year] = (yearTWR[year] || 1) * f;
+        dailyR.push({ d: days[i], r: f - 1 });
+        ddIndex *= f; if (ddIndex > ddPeak) ddPeak = ddIndex;
+        maxDD = Math.min(maxDD, ddIndex / ddPeak - 1);
+      }
     }
     if (i > firstFlowIdx) {
       for (const b of BENCHMARKS) {
@@ -655,8 +710,25 @@ async function computePerformance(txs) {
         if (p0 && p1) etfYearTWR[b][year] = (etfYearTWR[b][year] || 1) * (p1 / p0);
       }
     }
+    if (i >= firstFlowIdx) chart.push({
+      d: days[i], v: V, inv: cumFlow,
+      qqq: benchShares.QQQ * (aligned.QQQ[i] || 0),
+      voo: benchShares.VOO * (aligned.VOO[i] || 0),
+    });
     prevV = V;
   }
+
+  // Risk stats from the daily TWR factors
+  const meanR = dailyR.reduce((s, x) => s + x.r, 0) / (dailyR.length || 1);
+  const vol = dailyR.length > 1
+    ? Math.sqrt(dailyR.reduce((s, x) => s + (x.r - meanR) ** 2, 0) / (dailyR.length - 1)) * Math.sqrt(252)
+    : null;
+  let best = null, worst = null;
+  for (const x of dailyR) {
+    if (!best || x.r > best.r) best = x;
+    if (!worst || x.r < worst.r) worst = x;
+  }
+  const divTotal = Object.values(divBySym).reduce((s, v) => s + v, 0);
 
   // Today's values
   let myValue = 0;
@@ -676,7 +748,88 @@ async function computePerformance(txs) {
     twrAnnual: yearsSpan > 0 ? Math.pow(twr, 1 / yearsSpan) - 1 : null,
     mine, bench, netInvested, yearsSpan,
     since: days[firstFlowIdx], currentYear: String(today.getUTCFullYear()),
+    chart, maxDD, vol, best, worst, divBySym, divByYear, divTotal,
   };
+}
+
+// SVG line chart: portfolio value vs net invested vs mirrored QQQ/VOO
+function chartSVG(chart) {
+  const C = CHART_COLORS[THEME];
+  const W = 860, H = 300, padL = 64, padR = 14, padT = 14, padB = 28;
+  const n = chart.length;
+  if (n < 2) return "";
+  const maxV = Math.max(...chart.map(p => Math.max(p.v, p.inv, p.qqq, p.voo))) * 1.05;
+  const X = i => padL + (W - padL - padR) * i / (n - 1);
+  const Y = v => padT + (H - padT - padB) * (1 - v / maxV);
+  const line = (key, color, w, dash) =>
+    `<polyline fill="none" stroke="${color}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}
+      points="${chart.map((p, i) => X(i).toFixed(1) + "," + Y(p[key]).toFixed(1)).join(" ")}"/>`;
+  let grid = "";
+  for (let g = 0; g <= 4; g++) {
+    const v = maxV * g / 4, y = Y(v).toFixed(1);
+    grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${C.grid}"/>`
+      + `<text x="${padL - 8}" y="${+y + 4}" text-anchor="end" font-size="13" fill="${C.axis}" font-family="VT323, monospace">$${Math.round(v).toLocaleString()}</text>`;
+  }
+  let ticks = "", lastYear = "";
+  chart.forEach((p, i) => {
+    const y = p.d.slice(0, 4);
+    if (y !== lastYear) { lastYear = y; ticks += `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="13" fill="${C.axis}" font-family="VT323, monospace">${y}</text>`; }
+  });
+  return `<svg id="valueChart" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    ${grid}${ticks}
+    ${line("inv", C.inv, 2, "4 3")}
+    ${line("qqq", C.qqq, 1.5)}
+    ${line("voo", C.voo, 1.5)}
+    ${line("v", C.v, 2.5)}
+    <g id="chartHoverG" style="display:none">
+      <line id="chartCursor" y1="${padT}" y2="${H - padB}" stroke="${C.cursor}" stroke-width="1"/>
+      <rect id="chartDot-inv" width="7" height="7" fill="${C.inv}" stroke="${C.dotStroke}"/>
+      <rect id="chartDot-qqq" width="7" height="7" fill="${C.qqq}" stroke="${C.dotStroke}"/>
+      <rect id="chartDot-voo" width="7" height="7" fill="${C.voo}" stroke="${C.dotStroke}"/>
+      <rect id="chartDot-v" width="7" height="7" fill="${C.v}" stroke="${C.dotStroke}"/>
+    </g>
+  </svg>
+  <div class="chart-legend">
+    <span><i style="background:${C.v}"></i>My portfolio</span>
+    <span><i style="background:${C.inv}"></i>Net invested</span>
+    <span><i style="background:${C.qqq}"></i>QQQ (same flows)</span>
+    <span><i style="background:${C.voo}"></i>VOO (same flows)</span>
+  </div>`;
+}
+
+function attachChartHover() {
+  const svg = document.getElementById("valueChart");
+  if (!svg || !PERF_DATA?.chart?.length) return;
+  const tip = getTip(), chart = PERF_DATA.chart;
+  // Same scale as chartSVG
+  const W = 860, H = 300, padL = 64, padR = 14, padT = 14, padB = 28;
+  const maxV = Math.max(...chart.map(p => Math.max(p.v, p.inv, p.qqq, p.voo))) * 1.05;
+  const X = i => padL + (W - padL - padR) * i / (chart.length - 1);
+  const Y = v => padT + (H - padT - padB) * (1 - v / maxV);
+  const hoverG = svg.querySelector("#chartHoverG");
+  const cursor = svg.querySelector("#chartCursor");
+  const dots = { v: "#chartDot-v", inv: "#chartDot-inv", qqq: "#chartDot-qqq", voo: "#chartDot-voo" };
+
+  svg.addEventListener("mousemove", e => {
+    const rect = svg.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * W;
+    let i = Math.round((x - padL) / (W - padL - padR) * (chart.length - 1));
+    i = Math.max(0, Math.min(chart.length - 1, i));
+    const p = chart[i], px = X(i);
+    cursor.setAttribute("x1", px); cursor.setAttribute("x2", px);
+    for (const [key, sel] of Object.entries(dots)) {
+      const dot = svg.querySelector(sel);
+      dot.setAttribute("x", px - 3.5);
+      dot.setAttribute("y", Y(p[key]) - 3.5);
+    }
+    hoverG.style.display = "block";
+    tip.innerHTML = `<b>${p.d}</b><br>My portfolio: $${fmtUSD(p.v)}<br>Net invested: $${fmtUSD(p.inv)}<br>QQQ: $${fmtUSD(p.qqq)} · VOO: $${fmtUSD(p.voo)}`;
+    positionTip(tip, e);
+  });
+  svg.addEventListener("mouseleave", () => {
+    tip.style.display = "none";
+    hoverG.style.display = "none";
+  });
 }
 
 function perfHTML(P) {
@@ -707,7 +860,28 @@ function perfHTML(P) {
     return `vs ${b.name}: you are <span class="${plClass(d)}">${(d >= 0 ? "+$" : "-$") + fmtUSD(Math.abs(d))}</span> ${d >= 0 ? "ahead" : "behind"}`;
   }).join(" · ");
 
+  const divYears = Object.keys(P.divByYear).sort().reverse();
+  const divDetails = divYears.map((y, i) => {
+    const entries = Object.entries(P.divByYear[y]).filter(([, v]) => v > 0.005).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) return "";
+    const yTotal = entries.reduce((s, [, v]) => s + v, 0);
+    const rows = entries.map(([sym, v]) =>
+      `<tr><td class="ticker left">${sym}</td><td>$${fmtUSD(v)}</td></tr>`).join("");
+    return `<details class="div-year"${i === 0 ? " open" : ""}>
+      <summary>${y}${y === P.currentYear ? " (YTD)" : ""} · $${fmtUSD(yTotal)}</summary>
+      <table>
+        <thead><tr><th class="left">Ticker</th><th>Dividends</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </details>`;
+  }).join("");
+
   return `
+  <section>
+    <h2>Portfolio value over time</h2>
+    <div class="panel">${chartSVG(P.chart)}</div>
+  </section>
+
   <section>
     <h2>Overall returns (since ${P.since})</h2>
     <div class="cards">
@@ -736,6 +910,26 @@ function perfHTML(P) {
   </section>
 
   <section>
+    <h2>Risk</h2>
+    <div class="cards">
+      <div class="card"><div class="label">Max drawdown</div>
+        <div class="value ${plClass(P.maxDD)}">${fmtPct(P.maxDD * 100)}</div></div>
+      <div class="card"><div class="label">Volatility · annualized</div>
+        <div class="value">${P.vol == null ? "–" : (P.vol * 100).toFixed(2) + "%"}</div></div>
+      <div class="card"><div class="label">Best day</div>
+        <div class="value pos">${P.best ? fmtPct(P.best.r * 100) : "–"}</div>
+        <div class="delta">${P.best?.d || ""}</div></div>
+      <div class="card"><div class="label">Worst day</div>
+        <div class="value neg">${P.worst ? fmtPct(P.worst.r * 100) : "–"}</div>
+        <div class="delta">${P.worst?.d || ""}</div></div>
+    </div>
+    <div class="hint" style="color:var(--muted);font-size:15px">
+      Max drawdown = worst peak-to-bottom drop of the strategy (deposit-neutral TWR index).
+      Volatility = standard deviation of daily returns × √252.
+    </div>
+  </section>
+
+  <section>
     <h2>Performance by year (TWR)</h2>
     <div class="panel table-wrap">
       <table>
@@ -760,23 +954,61 @@ function perfHTML(P) {
         Sell proceeds are estimated as price × shares; stock splits are valued approximately before the split date.
       </div>
     </div>
+  </section>
+
+  <section>
+    <h2>Dividends received (estimated)</h2>
+    <div class="panel table-wrap">
+      ${divDetails ? `${divDetails}
+        <div class="div-total">Total received: <b>$${fmtUSD(P.divTotal)}</b></div>`
+        : `<div class="empty">No dividends detected for your holding periods</div>`}
+      <div class="hint" style="color:var(--muted);font-size:15px;margin-top:8px">
+        Estimated as shares held on each ex-dividend date × dividend per share (Yahoo dividend history).
+        This cash is <b>not</b> added to the P/L above — the return figures already include dividends via
+        adjusted prices — so treat it as cash your broker should have credited to you.
+      </div>
+    </div>
   </section>`;
 }
 
 async function renderPerformance() {
   const el = document.getElementById("perfContent");
   if (!ALL_TXS.length) { el.innerHTML = '<div class="empty">Load a CSV first</div>'; return; }
-  if (PERF_CACHE) { el.innerHTML = PERF_CACHE; return; }
+  if (PERF_CACHE) { el.innerHTML = PERF_CACHE; attachChartHover(); return; }
   el.innerHTML = '<div class="empty">Loading historical prices… (first run fetches a few years of data)</div>';
   try {
     const P = await computePerformance(ALL_TXS);
+    PERF_DATA = P;
     PERF_CACHE = perfHTML(P);
     el.innerHTML = PERF_CACHE;
+    attachChartHover();
   } catch (e) {
     el.innerHTML = `<div class="empty">Could not compute performance: ${e.message}.<br>
       The server must be running (npm start) with internet access to Yahoo Finance.</div>`;
   }
 }
+
+// ---------- Theme toggle ----------
+function applyTheme(t, rerender = true) {
+  THEME = t;
+  localStorage.setItem("theme", t);
+  COLORS = PIE_COLORS[t];
+  document.body.classList.toggle("theme-b", t === "b");
+  document.getElementById("themeSwitch")?.classList.toggle("b", t === "b");
+  if (!rerender) return;
+  if (HOLDINGS.length) renderDonuts(HOLDINGS);
+  if (PERF_DATA) {
+    // regenerate the performance HTML so the value chart picks up the new colors
+    PERF_CACHE = perfHTML(PERF_DATA);
+    if (document.getElementById("tab-performance")?.classList.contains("active")) {
+      document.getElementById("perfContent").innerHTML = PERF_CACHE;
+      attachChartHover();
+    }
+  }
+}
+document.getElementById("themeSwitch").addEventListener("click",
+  () => applyTheme(THEME === "a" ? "b" : "a"));
+applyTheme(THEME, false);
 
 // ---------- Tabs ----------
 function switchTab(id) {

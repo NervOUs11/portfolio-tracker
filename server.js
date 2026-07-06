@@ -80,14 +80,14 @@ app.get("/api/history", async (req, res) => {
 
   try {
     const cached = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (cached.fromSec <= fromSec && Date.now() - cached.fetchedAt < 12 * 3600e3)
+    if (cached.v === 2 && cached.fromSec <= fromSec && Date.now() - cached.fetchedAt < 12 * 3600e3)
       return res.json(cached);
   } catch { /* no usable cache */ }
 
   try {
     const now = Math.floor(Date.now() / 1000);
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`
-      + `?period1=${fromSec}&period2=${now}&interval=1d`;
+      + `?period1=${fromSec}&period2=${now}&interval=1d&events=div`;
     const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" } });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const result = (await r.json())?.chart?.result?.[0];
@@ -98,7 +98,10 @@ app.get("/api/history", async (req, res) => {
       .map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(0, 10), close: adj?.[i] ?? close[i] }))
       .filter(x => x.close != null);
     if (!series.length) throw new Error("no data");
-    const payload = { symbol, fromSec, fetchedAt: Date.now(), series };
+    const dividends = Object.values(result?.events?.dividends || {})
+      .map(d => ({ date: new Date(d.date * 1000).toISOString().slice(0, 10), amount: d.amount }))
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    const payload = { v: 2, symbol, fromSec, fetchedAt: Date.now(), series, dividends };
     fs.mkdirSync(HIST_DIR, { recursive: true });
     fs.writeFileSync(file, JSON.stringify(payload));
     res.json(payload);
