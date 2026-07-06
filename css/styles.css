@@ -18,6 +18,52 @@
   --shadow: 4px 4px 0 #000;
   --px-font: "Press Start 2P", monospace;
 }
+/* ============ Theme B: purple / teal ============
+   Palette: #2A0030 #0F3C44 #8BDBD4 #32C3BA #FF5755 #FF9F8E #FFCBC5 #9B72FF #CBACFF #E4D1FF */
+body.theme-b {
+  --bg: #2A0030;
+  --panel: #0F3C44;
+  --panel-2: #2A0030;
+  --border: #9B72FF;
+  --text: #E4D1FF;
+  --bright: #FFCBC5;
+  --muted: rgba(203, 172, 255, .6);
+  --green: #32C3BA;
+  --green-text: #32C3BA;
+  --red: #FF5755;
+  --blue: #8BDBD4;
+  --amber: #FF9F8E;
+  --accent: #9B72FF;
+}
+body.theme-b .tab-btn.active,
+body.theme-b .hm-year-btn.active { color: #2A0030; }
+body.theme-b .tag.Buy { background: #32C3BA; color: #2A0030; }
+body.theme-b .tag.Sell { background: #FF5755; color: #2A0030; }
+body.theme-b .tag.Split { background: #FF9F8E; color: #2A0030; }
+body.theme-b #hmTip { background: #2A0030; }
+/* heatmap ramp: teal shades */
+body.theme-b .hm-cell.hm-l1 { background: #16525A; }
+body.theme-b .hm-cell.hm-l2 { background: #1F8078; }
+body.theme-b .hm-cell.hm-l3 { background: #32C3BA; }
+body.theme-b .hm-cell.hm-l4 { background: #8BDBD4; }
+
+/* Theme toggle switch (fixed, left edge) */
+#themeSwitch {
+  position: fixed; left: 10px; top: 45%; z-index: 1001; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; user-select: none;
+}
+#themeSwitch .ts-label { font-family: var(--px-font); font-size: 7px; color: var(--muted); }
+#themeSwitch .ts-track {
+  width: 22px; height: 44px; background: var(--panel); border: 2px solid var(--border);
+  box-shadow: 2px 2px 0 #000; position: relative; display: block;
+}
+#themeSwitch .ts-knob {
+  position: absolute; left: 2px; top: 2px; width: 14px; height: 18px;
+  background: var(--accent); transition: top .15s;
+}
+#themeSwitch.b .ts-knob { top: 20px; }
+#themeSwitch:hover .ts-label { color: var(--text); }
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   font-family: "VT323", "Courier New", monospace;
@@ -47,7 +93,7 @@ header .sub { color: var(--muted); font-size: 16px; }
 #fileBadge { display: none; margin-bottom: 16px; font-size: 17px; color: var(--muted); }
 #fileBadge b { color: var(--bright); }
 #fileBadge button {
-  margin-left: 10px; background: var(--panel); color: var(--text);
+  background: var(--panel); color: var(--text);
   border: 2px solid var(--border); border-radius: 0; padding: 4px 12px;
   font-family: "VT323", monospace; font-size: 15px; cursor: pointer;
   box-shadow: 2px 2px 0 #000;
@@ -187,6 +233,23 @@ tbody tr:hover { background: rgba(122, 74, 47, .22); }
   display: flex; align-items: center; gap: 4px; margin-top: 2px;
   font-size: 15px; color: var(--muted);
 }
+/* Performance tab value chart */
+.chart-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 16px; color: var(--muted); }
+.chart-legend i { width: 12px; height: 12px; display: inline-block; margin-right: 6px; box-shadow: 1px 1px 0 #000; }
+
+/* Dividends: collapsible year boxes */
+.div-year { border: 2px solid var(--border); margin-bottom: 10px; background: var(--bg); }
+.div-year summary {
+  cursor: pointer; padding: 10px 14px; font-family: var(--px-font); font-size: 10px;
+  color: var(--bright); user-select: none; list-style: none;
+}
+.div-year summary::before { content: "▶ "; color: var(--accent); }
+.div-year[open] summary::before { content: "▼ "; }
+.div-year summary:hover { color: var(--accent); }
+.div-year table { margin: 0 14px 12px; width: calc(100% - 28px); }
+.div-total { margin-top: 12px; font-size: 17px; color: var(--muted); }
+.div-total b { color: var(--green-text); }
+
 /* Performance tab explainer (Thai text uses system font fallback) */
 .explain p { margin-bottom: 12px; line-height: 1.45; font-size: 16px; }
 .explain b { color: var(--accent); }

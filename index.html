@@ -10,12 +10,16 @@
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+<div id="themeSwitch" title="Switch color theme">
+  <span class="ts-label">THEME</span>
+  <span class="ts-track"><span class="ts-knob"></span></span>
+</div>
 <div class="container">
   <header>
     <h1>📈 Stock Transaction Tracker</h1>
   </header>
 
-  <div id="fileBadge">Loaded: <b id="fileName"></b> · <span id="txCount"></span> transactions
+  <div id="fileBadge">
     <button onclick="refreshPrices()">↻ Refresh prices</button>
     <button onclick="resetApp()">Load another file</button>
     <div id="priceStatus" style="margin-top:6px;font-size:12px"></div>
