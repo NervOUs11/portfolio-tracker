@@ -110,6 +110,21 @@ app.get("/api/history", async (req, res) => {
   }
 });
 
+// ---- Cash balances (USD + THB) stored in data/cash.json ----
+const CASH_FILE = path.join(DATA_DIR, "cash.json");
+
+app.get("/api/cash", (req, res) => {
+  if (!fs.existsSync(CASH_FILE)) return res.json({ USD: 0, THB: 0 });
+  res.type("json").send(fs.readFileSync(CASH_FILE, "utf8"));
+});
+
+app.post("/api/cash", (req, res) => {
+  const { USD = 0, THB = 0 } = req.body || {};
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(CASH_FILE, JSON.stringify({ USD: +USD || 0, THB: +THB || 0 }, null, 2));
+  res.json({ ok: true, file: "data/cash.json" });
+});
+
 // ---- Persist parsed transactions as JSON in data/ ----
 app.get("/api/transactions", (req, res) => {
   if (!fs.existsSync(TX_FILE)) return res.json(null);
