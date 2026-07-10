@@ -96,6 +96,18 @@
       </section>
 
       <section>
+        <h2>Cash</h2>
+        <div class="panel">
+          <div class="cash-grid">
+            <label>USD <input type="number" step="0.01" min="0" id="cashUSD" value="0"></label>
+            <label>THB <input type="number" step="0.01" min="0" id="cashTHB" value="0"></label>
+            <button id="cashSave">Save</button>
+          </div>
+          <div class="hint" id="cashSummary" style="color:var(--muted);font-size:15px;margin-top:10px"></div>
+        </div>
+      </section>
+
+      <section>
         <div class="pie-filter" id="pieTickers"></div>
         <div class="grid-2">
           <div class="panel">

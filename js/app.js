@@ -153,15 +153,15 @@ const plClass = n => n == null ? "" : n >= 0 ? "pos" : "neg";
 // Theme palettes + derived shades (enough distinct pie slices for larger portfolios)
 const PIE_COLORS = {
   a: ["#E4572E","#8FB89F","#7A4A2F","#E11D24","#F7F7F5","#2E4A3B","#C97B4A","#E8E2D6","#4F7A5C","#A33B20","#55442E","#22382D"],
-  b: ["#9B72FF","#32C3BA","#FF5755","#8BDBD4","#FF9F8E","#CBACFF","#FFCBC5","#E4D1FF","#6B48C8","#1F8078","#C43F3D","#16525A"],
+  b: ["#C4763B","#6FA35D","#B99B72","#C0453F","#8A5A2B","#D9A05B","#5E8B5A","#4C3D2C","#A7C48E","#96482B","#7A6A50","#3E7A45"],
 };
 const CHART_COLORS = {
   a: { v: "#F7F7F5", inv: "#7A4A2F", qqq: "#E4572E", voo: "#8FB89F",
        grid: "rgba(122,74,47,.45)", axis: "rgba(232,226,214,.55)",
        cursor: "rgba(232,226,214,.35)", dotStroke: "#0D0D0D" },
-  b: { v: "#E4D1FF", inv: "#9B72FF", qqq: "#FF9F8E", voo: "#32C3BA",
-       grid: "rgba(155,114,255,.45)", axis: "rgba(203,172,255,.6)",
-       cursor: "rgba(228,209,255,.4)", dotStroke: "#2A0030" },
+  b: { v: "#2F2416", inv: "#B99B72", qqq: "#C4763B", voo: "#6FA35D",
+       grid: "rgba(185,155,114,.5)", axis: "rgba(76,61,44,.6)",
+       cursor: "rgba(76,61,44,.4)", dotStroke: "#FBF6EA" },
 };
 let THEME = localStorage.getItem("theme") === "b" ? "b" : "a";
 let COLORS = PIE_COLORS[THEME];
@@ -275,7 +275,7 @@ function renderCards(txs, holdings) {
   const anyLive = holdings.some(p => p.live);
   const cards = [
     { label: anyLive ? "Current value (live)" : "Current value (from CSV)", value: "$" + fmtUSD(curValue) },
-    { label: "Net invested (buy cost + fees − sells)", value: "$" + fmtUSD(netInvested) },
+    { label: "Net invested (buy cost + fee - sell)", value: "$" + fmtUSD(netInvested) },
     { label: "Unrealized P/L", value: (unreal >= 0 ? "+$" : "-$") + fmtUSD(Math.abs(unreal)),
       delta: fmtPct(curCost ? unreal / curCost * 100 : null), cls: plClass(unreal) },
   ];
@@ -350,11 +350,17 @@ function attachColumnDrag(thead) {
 let PIE_UNCHECKED = new Set(JSON.parse(localStorage.getItem("pieUnchecked") || "[]"));
 
 function renderDonuts(holdings) {
-  // Stable color per ticker (based on full holdings order), so filtering doesn't recolor slices
-  const colorOf = t => COLORS[Math.max(0, holdings.findIndex(p => p.ticker === t)) % COLORS.length];
+  // Cash joins the pies as a pseudo-holding (same value on both charts)
+  const cash = getCashUSD();
+  const items = cash > 0.005
+    ? [...holdings, { ticker: "CASH", cost: cash, curValue: cash, hasCur: true }]
+    : holdings.slice();
+
+  // Stable color per ticker (based on full list order), so filtering doesn't recolor slices
+  const colorOf = t => COLORS[Math.max(0, items.findIndex(p => p.ticker === t)) % COLORS.length];
 
   const bar = document.getElementById("pieTickers");
-  bar.innerHTML = holdings.map(p => {
+  bar.innerHTML = items.map(p => {
     const off = PIE_UNCHECKED.has(p.ticker);
     return `<label class="${off ? "off" : ""}">
       <input type="checkbox" data-ticker="${p.ticker}" ${off ? "" : "checked"}>
@@ -366,7 +372,7 @@ function renderDonuts(holdings) {
     renderDonuts(HOLDINGS);
   }));
 
-  const shown = holdings.filter(p => !PIE_UNCHECKED.has(p.ticker));
+  const shown = items.filter(p => !PIE_UNCHECKED.has(p.ticker));
   renderDonut("donutCost", "donutCostLegend", shown, p => p.cost, colorOf);
   renderDonut("donutCur", "donutCurLegend", shown, p => p.hasCur ? p.curValue : p.cost, colorOf);
 }
@@ -399,7 +405,7 @@ let HEATMAP_YEAR = +(localStorage.getItem("heatmapYear") || 0);
 function renderHeatmap(txs) {
   const byDay = {};
   for (const t of txs) {
-    if (t.action === "Sell") continue;
+    if (t.action !== "Buy") continue; // only real purchases — no sells, no split re-adds
     const k = t.date.toISOString().slice(0, 10);
     byDay[k] = (byDay[k] || 0) + (t.cost ?? t.amount ?? 0);
   }
@@ -752,6 +758,59 @@ async function computePerformance(txs) {
   };
 }
 
+// ---- Chart range selection (All / YTD / 6M / 3M / specific year) ----
+let CHART_RANGE = localStorage.getItem("chartRange") || "all";
+let FILTERED_CHART = null;
+
+function filterChart(chart) {
+  if (!chart.length || CHART_RANGE === "all") return chart;
+  let filtered;
+  if (CHART_RANGE.startsWith("y:")) {
+    const y = CHART_RANGE.slice(2);
+    filtered = chart.filter(p => p.d.startsWith(y));
+  } else {
+    const last = new Date(chart[chart.length - 1].d);
+    let from;
+    if (CHART_RANGE === "ytd") from = last.getUTCFullYear() + "-01-01";
+    else {
+      const d = new Date(last);
+      d.setUTCMonth(d.getUTCMonth() - (CHART_RANGE === "6m" ? 6 : 3));
+      from = d.toISOString().slice(0, 10);
+    }
+    filtered = chart.filter(p => p.d >= from);
+  }
+  return filtered.length > 1 ? filtered : chart; // fall back if the range has no data
+}
+
+function renderChartBox() {
+  const box = document.getElementById("chartBox");
+  if (!box || !PERF_DATA) return;
+  FILTERED_CHART = filterChart(PERF_DATA.chart);
+  box.innerHTML = chartSVG(FILTERED_CHART);
+  attachChartHover();
+  document.querySelectorAll(".chart-range .cr-btn").forEach(b =>
+    b.classList.toggle("active", b.dataset.range === CHART_RANGE));
+  const sel = document.getElementById("chartYearSel");
+  if (sel) sel.value = CHART_RANGE.startsWith("y:") ? CHART_RANGE.slice(2) : "";
+}
+
+function attachChartControls() {
+  const wrap = document.querySelector(".chart-range");
+  if (!wrap) return;
+  wrap.querySelectorAll(".cr-btn").forEach(b => b.addEventListener("click", () => {
+    CHART_RANGE = b.dataset.range;
+    localStorage.setItem("chartRange", CHART_RANGE);
+    renderChartBox();
+  }));
+  document.getElementById("chartYearSel")?.addEventListener("change", e => {
+    if (!e.target.value) return;
+    CHART_RANGE = "y:" + e.target.value;
+    localStorage.setItem("chartRange", CHART_RANGE);
+    renderChartBox();
+  });
+  renderChartBox();
+}
+
 // SVG line chart: portfolio value vs net invested vs mirrored QQQ/VOO
 function chartSVG(chart) {
   const C = CHART_COLORS[THEME];
@@ -770,11 +829,16 @@ function chartSVG(chart) {
     grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${C.grid}"/>`
       + `<text x="${padL - 8}" y="${+y + 4}" text-anchor="end" font-size="13" fill="${C.axis}" font-family="VT323, monospace">$${Math.round(v).toLocaleString()}</text>`;
   }
-  let ticks = "", lastYear = "";
-  chart.forEach((p, i) => {
-    const y = p.d.slice(0, 4);
-    if (y !== lastYear) { lastYear = y; ticks += `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="13" fill="${C.axis}" font-family="VT323, monospace">${y}</text>`; }
-  });
+  // X-axis: evenly spaced date labels as day/month/year (e.g. 1/12/2023)
+  const fmtTick = d => { const [y, m, dd] = d.split("-"); return `${+dd}/${+m}/${y}`; };
+  const tickCount = Math.min(6, n);
+  let ticks = "";
+  for (let t = 0; t < tickCount; t++) {
+    const i = Math.round(t * (n - 1) / (tickCount - 1));
+    const anchor = t === 0 ? "start" : t === tickCount - 1 ? "end" : "middle";
+    ticks += `<line x1="${X(i).toFixed(1)}" y1="${H - padB}" x2="${X(i).toFixed(1)}" y2="${H - padB + 4}" stroke="${C.grid}"/>`
+      + `<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="${anchor}" font-size="13" fill="${C.axis}" font-family="VT323, monospace">${fmtTick(chart[i].d)}</text>`;
+  }
   return `<svg id="valueChart" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
     ${grid}${ticks}
     ${line("inv", C.inv, 2, "4 3")}
@@ -799,8 +863,9 @@ function chartSVG(chart) {
 
 function attachChartHover() {
   const svg = document.getElementById("valueChart");
-  if (!svg || !PERF_DATA?.chart?.length) return;
-  const tip = getTip(), chart = PERF_DATA.chart;
+  const chart = FILTERED_CHART || PERF_DATA?.chart;
+  if (!svg || !chart || chart.length < 2) return;
+  const tip = getTip();
   // Same scale as chartSVG
   const W = 860, H = 300, padL = 64, padR = 14, padT = 14, padB = 28;
   const maxV = Math.max(...chart.map(p => Math.max(p.v, p.inv, p.qqq, p.voo))) * 1.05;
@@ -857,7 +922,7 @@ function perfHTML(P) {
 
   const diffs = P.bench.map(b => {
     const d = P.mine.value - b.value;
-    return `vs ${b.name}: you are <span class="${plClass(d)}">${(d >= 0 ? "+$" : "-$") + fmtUSD(Math.abs(d))}</span> ${d >= 0 ? "ahead" : "behind"}`;
+    return `เทียบกับ ${b.name}: คุณ<span class="${plClass(d)}">${d >= 0 ? "นำอยู่ +$" : "ตามหลัง -$"}${fmtUSD(Math.abs(d))}</span>`;
   }).join(" · ");
 
   const divYears = Object.keys(P.divByYear).sort().reverse();
@@ -876,10 +941,23 @@ function perfHTML(P) {
     </details>`;
   }).join("");
 
+  const yFirst = +P.chart[0].d.slice(0, 4), yLast = +P.chart[P.chart.length - 1].d.slice(0, 4);
+  let yearOpts = '<option value="">Year…</option>';
+  for (let y = yLast; y >= yFirst; y--) yearOpts += `<option value="${y}">${y}</option>`;
+
   return `
   <section>
     <h2>Portfolio value over time</h2>
-    <div class="panel">${chartSVG(P.chart)}</div>
+    <div class="panel">
+      <div class="chart-range">
+        <button class="cr-btn" data-range="all">All</button>
+        <button class="cr-btn" data-range="ytd">YTD</button>
+        <button class="cr-btn" data-range="6m">6M</button>
+        <button class="cr-btn" data-range="3m">3M</button>
+        <select id="chartYearSel">${yearOpts}</select>
+      </div>
+      <div id="chartBox"></div>
+    </div>
   </section>
 
   <section>
@@ -925,7 +1003,9 @@ function perfHTML(P) {
     </div>
     <div class="hint" style="color:var(--muted);font-size:15px">
       Max drawdown = worst peak-to-bottom drop of the strategy (deposit-neutral TWR index).
-      Volatility = standard deviation of daily returns × √252.
+    </div>
+    <div class="hint" style="color:var(--muted);font-size:15px">
+      Volatility = standard deviation of daily returns x √252.
     </div>
   </section>
 
@@ -936,9 +1016,6 @@ function perfHTML(P) {
         <thead><tr><th class="left">Year</th><th>My portfolio</th>${BENCHMARKS.map(b => `<th>${b}</th>`).join("")}</tr></thead>
         <tbody>${yearRows}</tbody>
       </table>
-      <div class="hint" style="color:var(--muted);font-size:15px;margin-top:8px">
-        First year starts at your first purchase (${P.since}). Benchmark columns use adjusted closes (dividends included) over the same span.
-      </div>
     </div>
   </section>
 
@@ -949,10 +1026,6 @@ function perfHTML(P) {
         <thead><tr><th class="left">Portfolio</th><th>Net invested</th><th>Value today</th><th>Profit</th><th>Return</th><th>MWR</th></tr></thead>
         <tbody>${whatIfRows}</tbody>
       </table>
-      <div class="hint" style="color:var(--muted);font-size:15px;margin-top:8px">
-        Every buy/sell is mirrored into the ETF at that day's close — same dates, same dollars. ${diffs}.<br>
-        Sell proceeds are estimated as price × shares; stock splits are valued approximately before the split date.
-      </div>
     </div>
   </section>
 
@@ -962,11 +1035,6 @@ function perfHTML(P) {
       ${divDetails ? `${divDetails}
         <div class="div-total">Total received: <b>$${fmtUSD(P.divTotal)}</b></div>`
         : `<div class="empty">No dividends detected for your holding periods</div>`}
-      <div class="hint" style="color:var(--muted);font-size:15px;margin-top:8px">
-        Estimated as shares held on each ex-dividend date × dividend per share (Yahoo dividend history).
-        This cash is <b>not</b> added to the P/L above — the return figures already include dividends via
-        adjusted prices — so treat it as cash your broker should have credited to you.
-      </div>
     </div>
   </section>`;
 }
@@ -974,19 +1042,79 @@ function perfHTML(P) {
 async function renderPerformance() {
   const el = document.getElementById("perfContent");
   if (!ALL_TXS.length) { el.innerHTML = '<div class="empty">Load a CSV first</div>'; return; }
-  if (PERF_CACHE) { el.innerHTML = PERF_CACHE; attachChartHover(); return; }
+  if (PERF_CACHE) { el.innerHTML = PERF_CACHE; attachChartControls(); return; }
   el.innerHTML = '<div class="empty">Loading historical prices… (first run fetches a few years of data)</div>';
   try {
     const P = await computePerformance(ALL_TXS);
     PERF_DATA = P;
     PERF_CACHE = perfHTML(P);
     el.innerHTML = PERF_CACHE;
-    attachChartHover();
+    attachChartControls();
   } catch (e) {
     el.innerHTML = `<div class="empty">Could not compute performance: ${e.message}.<br>
       The server must be running (npm start) with internet access to Yahoo Finance.</div>`;
   }
 }
+
+// ---------- Cash (USD + THB, persisted in data/cash.json) ----------
+let USDTHB = null; // THB per 1 USD
+
+function getCashUSD() {
+  const usd = +document.getElementById("cashUSD")?.value || 0;
+  const thb = +document.getElementById("cashTHB")?.value || 0;
+  return usd + (USDTHB ? thb / USDTHB : 0);
+}
+
+function updateCashSummary() {
+  const usd = +document.getElementById("cashUSD").value || 0;
+  const thb = +document.getElementById("cashTHB").value || 0;
+  const el = document.getElementById("cashSummary");
+  const thbInUsd = USDTHB ? thb / USDTHB : null;
+  let text = `Total cash ≈ $${fmtUSD(usd + (thbInUsd || 0))}`;
+  if (USDTHB) text += ` · ฿${fmtUSD(thb)} ≈ $${fmtUSD(thbInUsd)} at 1 USD = ${USDTHB.toFixed(2)} THB`;
+  else if (thb) text += ` · THB not converted (exchange rate unavailable)`;
+  el.textContent = text;
+  if (HOLDINGS.length) renderDonuts(HOLDINGS); // keep the CASH pie slice in sync
+}
+
+async function loadCash() {
+  try {
+    const res = await fetch("/api/cash");
+    if (!res.ok) return;
+    const c = await res.json();
+    document.getElementById("cashUSD").value = c.USD ?? 0;
+    document.getElementById("cashTHB").value = c.THB ?? 0;
+  } catch { /* server not running */ }
+  try {
+    const r = await fetch("/api/quotes?symbols=" + encodeURIComponent("THB=X"));
+    if (r.ok) USDTHB = (await r.json()).quotes?.["THB=X"]?.price ?? null;
+  } catch { /* keep null */ }
+  updateCashSummary();
+}
+
+async function saveCash() {
+  const btn = document.getElementById("cashSave");
+  try {
+    await fetch("/api/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        USD: +document.getElementById("cashUSD").value || 0,
+        THB: +document.getElementById("cashTHB").value || 0,
+      }),
+    });
+    btn.textContent = "Saved ✓";
+  } catch {
+    btn.textContent = "Failed ✗";
+  }
+  setTimeout(() => { btn.textContent = "Save"; }, 1500);
+  updateCashSummary();
+}
+
+document.getElementById("cashSave").addEventListener("click", saveCash);
+["cashUSD", "cashTHB"].forEach(id =>
+  document.getElementById(id).addEventListener("input", updateCashSummary));
+loadCash();
 
 // ---------- Theme toggle ----------
 function applyTheme(t, rerender = true) {
@@ -1002,7 +1130,7 @@ function applyTheme(t, rerender = true) {
     PERF_CACHE = perfHTML(PERF_DATA);
     if (document.getElementById("tab-performance")?.classList.contains("active")) {
       document.getElementById("perfContent").innerHTML = PERF_CACHE;
-      attachChartHover();
+      attachChartControls();
     }
   }
 }
